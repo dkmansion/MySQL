@@ -1389,3 +1389,65 @@ function Invoke-MySqlParamQuery
 		}
 	}
 }
+
+function Invoke-MySqlInsertQuery {
+  <#
+		.SYNOPSIS
+				Run an insert query against a MySQL Server and return LAST_INSERT_ID() as id from table AUTO_INCREMENT column.
+		.DESCRIPTION
+				This function can be used only to insert data to a MySQL Server table.
+				If table has AUTO_INCREMENT column function returns its value selected in transaction.
+		.PARAMETER Connection
+				A connection object that represents an open connection to MySQL Server
+		.PARAMETER InsertQuery
+				A valid MySQL INSERT query
+		.EXAMPLE
+				$file_id = Invoke-MySqlInsertQuery -InsertQuery "insert into files (filename) values ('test.txt');"
+
+				CREATE TABLE `files` (
+					`id` INT(11) NOT NULL AUTO_INCREMENT,
+					`filename` VARCHAR(255) NOT NULL DEFAULT '',
+				PRIMARY KEY (`id`) USING BTREE
+				);
+		.NOTES
+				FunctionName : Invoke-MySqlInsertQuery
+				Created by   : https://github.com/piotr-nowinski
+				Date Coded   : 06/09/2020
+  #>
+		[CmdletBinding()]
+  param (
+    [Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+    [string]$InsertQuery,
+
+    [Parameter(ValueFromPipeline)]
+		[ValidateNotNullOrEmpty()]
+		[MySql.Data.MySqlClient.MySqlConnection]$Connection = $Global:MySQLConnection
+  )
+  begin
+	{
+		$ErrorActionPreference = 'Stop'
+	}
+	Process
+	{
+    try {
+      [MySql.Data.MySqlClient.MySqlCommand]$c = New-Object MySql.Data.MySqlClient.MySqlCommand
+      $c.Connection = $Connection
+      $c.CommandText = $InsertQuery
+      $c.Transaction = $Connection.BeginTransaction()
+      $rowsAffected = $c.ExecuteNonQuery()
+      Write-Verbose "Row(s) affected $rowsAffected"
+      $c.CommandText =  "select LAST_INSERT_ID() as id;"  # id of inserted row
+      [MySql.Data.MySqlClient.MySqlDataAdapter]$dataAdapter = New-Object MySql.Data.MySqlClient.MySqlDataAdapter($c)
+      $dataSet = New-Object System.Data.DataSet
+      $recordCount = $dataAdapter.Fill($dataSet)
+      Write-Verbose "Row(s) selected $recordCount"
+			$c.Transaction.Commit()
+      return $dataSet.Tables[0].Rows[0].id
+    }
+    catch {
+      $c.Transaction.Rollback()
+      Write-Error -Message $_.Exception.Message
+    }
+  }
+}
